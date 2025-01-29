@@ -1,7 +1,14 @@
 import dagster as dg
-from dagster_dbt import dbt_assets, DbtCliResource, DbtProject, get_asset_key_for_model
+from dagster_dbt import (
+    dbt_assets,
+    DbtCliResource,
+    DbtProject,
+    get_asset_key_for_model,
+    build_schedule_from_dbt_selection,
+)
 from pathlib import Path
 import plotly.express as px
+from pathlib import Path
 import pandas as pd
 import duckdb
 import os
@@ -11,7 +18,6 @@ duckdb_database_path = "./dev.duckdb"
 
 @dg.asset(compute_kind="python")
 def raw_customers(context: dg.AssetExecutionContext) -> None:
-
     # Pull customer data from a CSV
     data = pd.read_csv("https://docs.dagster.io/assets/customers.csv")
     connection = duckdb.connect(os.fspath(duckdb_database_path))
@@ -28,18 +34,12 @@ def raw_customers(context: dg.AssetExecutionContext) -> None:
     context.add_output_metadata({"num_rows": data.shape[0]})
 
 
-# Points to the dbt project path
 dbt_project_directory = Path(__file__).absolute().parent
 dbt_project = DbtProject(project_dir=dbt_project_directory)
-
-# References the dbt project object
 dbt_resource = DbtCliResource(project_dir=dbt_project)
-
-# Compiles the dbt project & allow Dagster to build an asset graph
 dbt_project.prepare_if_dev()
 
 
-# Yields Dagster events streamed from the dbt CLI
 @dbt_assets(manifest=dbt_project.manifest_path)
 def dbt_models(context: dg.AssetExecutionContext, dbt: DbtCliResource):
     yield from dbt.cli(["build"], context=context).stream()
@@ -72,8 +72,18 @@ def customer_histogram(context: dg.AssetExecutionContext):
     )
 
 
-# Dagster object that contains the dbt assets and resource
+# Build a schedule for the job that materializes a selection of dbt assets
+dbt_schedule = build_schedule_from_dbt_selection(
+    [dbt_models],
+    job_name="materialize_dbt_models",
+    cron_schedule="32 13 * * *",
+    dbt_select="fqn:*",
+)
+
+
+# Add Dagster definitions to Definitions object
 defs = dg.Definitions(
     assets=[raw_customers, dbt_models, customer_histogram],
     resources={"dbt": dbt_resource},
+    schedules=[dbt_schedule],
 )
