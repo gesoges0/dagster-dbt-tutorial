@@ -1,6 +1,7 @@
 import dagster as dg
-from dagster_dbt import dbt_assets, DbtCliResource, DbtProject
+from dagster_dbt import dbt_assets, DbtCliResource, DbtProject, get_asset_key_for_model
 from pathlib import Path
+import plotly.express as px
 import pandas as pd
 import duckdb
 import os
@@ -26,6 +27,7 @@ def raw_customers(context: dg.AssetExecutionContext) -> None:
     # Log some metadata about the new table. It will show up in the UI.
     context.add_output_metadata({"num_rows": data.shape[0]})
 
+
 # Points to the dbt project path
 dbt_project_directory = Path(__file__).absolute().parent
 dbt_project = DbtProject(project_dir=dbt_project_directory)
@@ -43,8 +45,35 @@ def dbt_models(context: dg.AssetExecutionContext, dbt: DbtCliResource):
     yield from dbt.cli(["build"], context=context).stream()
 
 
+@dg.asset(
+    compute_kind="python",
+    # Defines the dependency on the customers model,
+    # which is represented as an asset in Dagster
+    deps=[get_asset_key_for_model([dbt_models], "customers")],
+)
+def customer_histogram(context: dg.AssetExecutionContext):
+    # Read the contents of the customers table into a Pandas DataFrame
+    connection = duckdb.connect(os.fspath(duckdb_database_path))
+    customers = connection.sql("select * from customers").df()
+
+    # Create a customer histogram and write it out to an HTML file
+    fig = px.histogram(customers, x="FIRST_NAME")
+    fig.update_layout(bargap=0.2)
+    fig.update_xaxes(categoryorder="total ascending")
+    save_chart_path = Path(duckdb_database_path).parent.joinpath(
+        "order_count_chart.html"
+    )
+    fig.write_html(save_chart_path, auto_open=True)
+
+    # Tell Dagster about the location of the HTML file,
+    # so it's easy to access from the Dagster UI
+    context.add_output_metadata(
+        {"plot_url": dg.MetadataValue.url("file://" + os.fspath(save_chart_path))}
+    )
+
+
 # Dagster object that contains the dbt assets and resource
 defs = dg.Definitions(
-    assets=[raw_customers, dbt_models],
-    resources={"dbt": dbt_resource}
+    assets=[raw_customers, dbt_models, customer_histogram],
+    resources={"dbt": dbt_resource},
 )

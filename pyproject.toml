@@ -11,4 +11,10 @@ dependencies = [
     "dbt-core>=1.9.1",
     "dbt-duckdb>=1.9.1",
     "pandas>=2.2.3",
+    "plotly>=6.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "black>=25.1.0",
 ]
