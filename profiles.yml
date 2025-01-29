@@ -3,10 +3,10 @@ basic_dbt_project:
   outputs:
     dev:
       type: duckdb
-      path: dev.duckdb
+      path: /home/gesogeso/ghq/github.com/dagster-io/basic-dbt-project/dev.duckdb
       threads: 1
 
     prod:
       type: duckdb
-      path: prod.duckdb
+      path: /home/gesogeso/ghq/github.com/dagster-io/basic-dbt-project/prod.duckdb
       threads: 4
